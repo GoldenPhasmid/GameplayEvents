@@ -19,6 +19,7 @@ public class GameplayEventTests : ModuleRules
                 "CoreUObject",
                 "Engine",
                 "GameplayEvents",
+                "GameplayTags",
             }
         );
     }
