@@ -76,6 +76,7 @@ DEFINE_FUNCTION(UGameplayEventSubsystem::execK2_SendEvent)
 
 	P_FINISH;
 
+	P_NATIVE_BEGIN;
 	if (ensure((StructProperty != nullptr) && (StructProperty->Struct != nullptr) && (EventPtr != nullptr)))
 	{
 		if (UGameplayEventSubsystem* EventSubsystem = UGameplayEventSubsystem::Get(WorldContextObject))
@@ -83,6 +84,7 @@ DEFINE_FUNCTION(UGameplayEventSubsystem::execK2_SendEvent)
 			EventSubsystem->SendEventInternal(Channel, StructProperty->Struct, EventPtr, SendEventMode);
 		}
 	}
+	P_NATIVE_END;
 }
 
 void UGameplayEventSubsystem::SendEventInternal(const FGameplayTag& Channel, const UScriptStruct* EventType, const void* Event, ESendEventMode SendMode)

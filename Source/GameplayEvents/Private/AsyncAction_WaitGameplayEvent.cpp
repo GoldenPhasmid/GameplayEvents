@@ -69,6 +69,7 @@ DEFINE_FUNCTION(UAsyncAction_WaitGameplayEvent::execGetEventData)
 
 	bool bSuccess = false;
 
+	P_NATIVE_BEGIN;
 	// Make sure the type we are trying to get through the blueprint node matches the type of the message payload received.
 	if ((StructProperty != nullptr) && (StructProperty->Struct != nullptr) && (EventPtr != nullptr) && (StructProperty->Struct == P_THIS->EventType.Get()) && (P_THIS->ReceivedEventData != nullptr))
 	{
@@ -77,6 +78,7 @@ DEFINE_FUNCTION(UAsyncAction_WaitGameplayEvent::execGetEventData)
 	}
 
 	*(bool*)RESULT_PARAM = bSuccess;
+	P_NATIVE_END;
 }
 
 void UAsyncAction_WaitGameplayEvent::HandleEventReceived(FGameplayTag ActualChannel, const void* Event)
