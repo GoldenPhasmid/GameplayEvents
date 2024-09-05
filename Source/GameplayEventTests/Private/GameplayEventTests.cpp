@@ -2,25 +2,41 @@
 #include "GameplayEventSubsystem.h"
 #include "GameplayTagsManager.h"
 
-constexpr uint32 AutomationFlags = EAutomationTestFlags::ProductFilter | EAutomationTestFlags::ApplicationContextMask;
+FGameplayTag ChannelTag;
+FGameplayTag ChannelGameplayTag;
+FGameplayTag ChannelUITag;
+FGameplayTag ChannelParent;
+FGameplayTag ChannelChild;
+FGameplayTag ChannelLeaf;
 
-FGameplayTag CreateChannel(const FName& Name)
+namespace UE::GameplayEvents
 {
-	FGameplayTag Channel = FGameplayTag::RequestGameplayTag(Name);
-	return Channel;
-#if 0
-	FGameplayTag Channel = FGameplayTag::EmptyTag;
 	
-	FProperty* Property = TBaseStructure<FGameplayTag>::Get()->FindPropertyByName(TEXT("TagName"));
-	if (const FNameProperty* NameProperty = CastFieldChecked<FNameProperty>(Property))
-	{
-		NameProperty->SetValue_InContainer(&Channel, Name);
-	}
-	check(Channel.IsValid());
+struct FNativeGameplayTags: public FGameplayTagNativeAdder
+{
+	virtual ~FNativeGameplayTags() {}
 
-	return Channel;
-#endif
+	virtual void AddTags() override
+	{
+		UGameplayTagsManager& Manager = UGameplayTagsManager::Get();
+		ChannelTag				= Manager.AddNativeGameplayTag(TEXT("Tests.GameplayEvents.Channel"));
+		ChannelGameplayTag		= Manager.AddNativeGameplayTag(TEXT("Tests.GameplayEvents.Channel.Gameplay"));
+		ChannelUITag			= Manager.AddNativeGameplayTag(TEXT("Tests.GameplayEvents.Channel.UI"));
+		ChannelParent			= Manager.AddNativeGameplayTag(TEXT("Tests.GameplayEvents.Parent"));
+		ChannelChild			= Manager.AddNativeGameplayTag(TEXT("Tests.GameplayEvents.Parent.Child"));
+		ChannelLeaf				= Manager.AddNativeGameplayTag(TEXT("Tests.GameplayEvents.Parent.Child.Leaf"));
+	}
+
+	FORCEINLINE static FNativeGameplayTags& Get()
+	{
+		return Instance;
+	}
+
+	static FNativeGameplayTags Instance;
+};
+	
 }
+constexpr uint32 AutomationFlags = EAutomationTestFlags::ProductFilter | EAutomationTestFlags::ApplicationContextMask;
 
 UGameplayEventSubsystem* CreateSubsystem()
 {
@@ -35,13 +51,13 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGameplayEventSubsystemTest_Handle, "Game.Gamep
 bool FGameplayEventSubsystemTest_Handle::RunTest(const FString& Parameters)
 {
 	UGameplayEventSubsystem* Subsystem = CreateSubsystem();
-	const FGameplayTag Channel = CreateChannel(TEXT("Tests.Channel"));
 
 	{
 		FGameplayEventHandle EmptyHandle{};
 		TestTrueExpr(!EmptyHandle.IsValid());
 	}
-	
+
+	const FGameplayTag Channel = ChannelTag;
 	const auto Callback = TEventCallbackWithTag<FVector>::CreateLambda([](FGameplayTag, const FVector&) { });
 	{
 		FGameplayEventHandle Handle = Subsystem->AddReceiver(Channel, Callback);
@@ -119,7 +135,7 @@ bool FGameplayEventTest_Callbacks::RunTest(const FString& Parameters)
 	const auto Callback = TEventCallback<FVector>::CreateRaw(&Thunk, &FThunk::Callback);
 	const auto CallbackWithTag = TEventCallbackWithTag<FVector>::CreateRaw(&Thunk, &FThunk::CallbackWithTag);
 
-	const FGameplayTag Channel = CreateChannel(TEXT("Tests.Channel.Gameplay"));
+	const FGameplayTag Channel = ChannelGameplayTag;
 
 	UGameplayEventSubsystem* Subsystem = CreateSubsystem();
 	{
@@ -184,7 +200,7 @@ bool FGameplayEventTest_Events::RunTest(const FString& Parameters)
 	const auto Callback = TEventCallbackWithTag<FVector>::CreateRaw(&Thunk, &FThunk::Callback);
 
 	UGameplayEventSubsystem* Subsystem = CreateSubsystem();
-	const FGameplayTag Channel = CreateChannel(TEXT("Tests.Channel.Gameplay"));
+	const FGameplayTag Channel = ChannelGameplayTag;
 	
 	FGameplayEventHandle Handle = Subsystem->AddReceiver(Channel, Callback);
 
@@ -241,8 +257,8 @@ bool FGameplayEventTest_Channels::RunTest(const FString& Parameters)
 {
 	UGameplayEventSubsystem* Subsystem = CreateSubsystem();
 	
-	const FGameplayTag Gameplay = CreateChannel(TEXT("Tests.Channel.Gameplay"));
-	const FGameplayTag UI		= CreateChannel(TEXT("Tests.Channel.UI"));
+	const FGameplayTag Gameplay = ChannelGameplayTag;
+	const FGameplayTag UI		= ChannelUITag;
 
 	int32 GameplayCount = 0;
 	int32 UICount = 0;
@@ -288,18 +304,14 @@ bool FGameplayEventTest_SubChannels::RunTest(const FString& Parameters)
 	UGameInstance* GameInstance = NewObject<UGameInstance>(GEngine);
 	UGameplayEventSubsystem* Subsystem = NewObject<UGameplayEventSubsystem>(GameInstance, NAME_None, RF_Transient);
 	
-	const FGameplayTag Parent = CreateChannel(TEXT("Tests.Channel.Parent"));
-	const FGameplayTag Child = CreateChannel(TEXT("Tests.Channel.Parent.Child"));
-	const FGameplayTag Leaf = CreateChannel(TEXT("Tests.Channel.Parent.Child.Leaf"));
-
 	AddExpectedError(TEXT("Broadcasting non-leaf tags is disabled."), EAutomationExpectedErrorFlags::Contains, 2);
 
 	// should produce an expected error
-	Subsystem->SendEvent(Parent, FVector::ZeroVector);
+	Subsystem->SendEvent(ChannelParent, FVector::ZeroVector);
 	// should produce an expected error
-	Subsystem->SendEvent(Child, FVector::ZeroVector);
+	Subsystem->SendEvent(ChannelChild, FVector::ZeroVector);
 	// fine
-	Subsystem->SendEvent(Leaf, FVector::ZeroVector);
+	Subsystem->SendEvent(ChannelLeaf, FVector::ZeroVector);
 
 	AllowNonLeafEventChannels->Set(bAllowNonLeafEventChannels);
 	DumpCallstack->Set(bDumpCallstack);
@@ -317,8 +329,8 @@ bool FGameplayEventTest_EventLogging::RunTest(const FString& Parameters)
 	LogEvents->Set(true);
 
 	UGameplayEventSubsystem* Subsystem = CreateSubsystem();
-	const FGameplayTag Gameplay = CreateChannel(TEXT("Tests.Channel.Gameplay"));
-	const FGameplayTag UI = CreateChannel(TEXT("Tests.Channel.UI"));
+	const FGameplayTag Gameplay = ChannelGameplayTag;
+	const FGameplayTag UI = ChannelUITag;
 	
 	AddExpectedMessage(TEXT("Tests\\.Channel\\.Gameplay.+Immediate"), ELogVerbosity::Display, EAutomationExpectedMessageFlags::Contains, 1);
 	Subsystem->SendEvent(Gameplay, FVector::ZeroVector);
@@ -337,10 +349,6 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGameplayEventTest_ActualChannels, "Game.Gamepl
 bool FGameplayEventTest_ActualChannels::RunTest(const FString& Parameters)
 {
 	UGameplayEventSubsystem* Subsystem = CreateSubsystem();
-	
-	const FGameplayTag Parent = CreateChannel(TEXT("Tests.Channel.Parent"));
-	const FGameplayTag Child = CreateChannel(TEXT("Tests.Channel.Parent.Child"));
-	const FGameplayTag Leaf = CreateChannel(TEXT("Tests.Channel.Parent.Child.Leaf"));
 
 	int32 Count = 0;
 	FVector Value = FVector::ZeroVector;
@@ -360,27 +368,27 @@ bool FGameplayEventTest_ActualChannels::RunTest(const FString& Parameters)
 	Value = FVector::ZeroVector;
 	Channel = FGameplayTag::EmptyTag;
 		
-	FGameplayEventHandle Handle = Subsystem->AddReceiver(Parent, Callback);
+	FGameplayEventHandle Handle = Subsystem->AddReceiver(ChannelParent, Callback);
 
 	{
-		Subsystem->SendEvent(Parent, FVector{1, 1, 1});
+		Subsystem->SendEvent(ChannelParent, FVector{1, 1, 1});
 		UTEST_TRUE(TEXT("Count"), Count == 1);
 		UTEST_TRUE(TEXT("Value"), (Value == FVector{1, 1, 1}));
-		UTEST_TRUE(TEXT("Channel"), (Channel.MatchesTagExact(Parent)));
+		UTEST_TRUE(TEXT("Channel"), (Channel.MatchesTagExact(ChannelParent)));
 	}
 
 	{
-		Subsystem->SendEvent(Child, FVector{2, 2, 2});
+		Subsystem->SendEvent(ChannelChild, FVector{2, 2, 2});
 		UTEST_TRUE(TEXT("Count"), Count == 2);
 		UTEST_TRUE(TEXT("Value"), (Value == FVector{2, 2, 2}));
-		UTEST_TRUE(TEXT("Channel"), (Channel.MatchesTagExact(Child)));
+		UTEST_TRUE(TEXT("Channel"), (Channel.MatchesTagExact(ChannelChild)));
 	}
 
 	{
-		Subsystem->SendEvent(Leaf, FVector{3, 3, 3});
+		Subsystem->SendEvent(ChannelLeaf, FVector{3, 3, 3});
 		UTEST_TRUE(TEXT("Count"), Count == 3);
 		UTEST_TRUE(TEXT("Value"), (Value == FVector{3, 3, 3}));
-		UTEST_TRUE(TEXT("Channel"), (Channel.MatchesTagExact(Leaf)));
+		UTEST_TRUE(TEXT("Channel"), (Channel.MatchesTagExact(ChannelLeaf)));
 	}
 	Subsystem->RemoveReceiver(Handle);
 
@@ -388,26 +396,26 @@ bool FGameplayEventTest_ActualChannels::RunTest(const FString& Parameters)
 	Value = FVector::ZeroVector;
 	Channel = FGameplayTag::EmptyTag;
 
-	Handle = Subsystem->AddReceiver(Child, Callback);
+	Handle = Subsystem->AddReceiver(ChannelChild, Callback);
 	{
-		Subsystem->SendEvent(Parent, FVector{1, 1, 1});
+		Subsystem->SendEvent(ChannelParent, FVector{1, 1, 1});
 		UTEST_TRUE(TEXT("Count"), Count == 0);
 		UTEST_TRUE(TEXT("Value"), (Value == FVector::ZeroVector));
 		UTEST_TRUE(TEXT("Channel"), (Channel == FGameplayTag::EmptyTag));
 	}
 
 	{
-		Subsystem->SendEvent(Child, FVector{2, 2, 2});
+		Subsystem->SendEvent(ChannelChild, FVector{2, 2, 2});
 		UTEST_TRUE(TEXT("Count"), Count == 1);
 		UTEST_TRUE(TEXT("Value"), (Value == FVector{2, 2, 2}));
-		UTEST_TRUE(TEXT("Channel"), (Channel.MatchesTagExact(Child)));
+		UTEST_TRUE(TEXT("Channel"), (Channel.MatchesTagExact(ChannelChild)));
 	}
 
 	{
-		Subsystem->SendEvent(Leaf, FVector{3, 3, 3});
+		Subsystem->SendEvent(ChannelLeaf, FVector{3, 3, 3});
 		UTEST_TRUE(TEXT("Count"), Count == 2);
 		UTEST_TRUE(TEXT("Value"), (Value == FVector{3, 3, 3}));
-		UTEST_TRUE(TEXT("Channel"), (Channel.MatchesTagExact(Leaf)));
+		UTEST_TRUE(TEXT("Channel"), (Channel.MatchesTagExact(ChannelLeaf)));
 	}
 	Subsystem->RemoveReceiver(Handle);
 
@@ -415,26 +423,26 @@ bool FGameplayEventTest_ActualChannels::RunTest(const FString& Parameters)
 	Value = FVector::ZeroVector;
 	Channel = FGameplayTag::EmptyTag;
 
-	Handle = Subsystem->AddReceiver(Leaf, Callback);
+	Handle = Subsystem->AddReceiver(ChannelLeaf, Callback);
 	{
-		Subsystem->SendEvent(Parent, FVector{1, 1, 1});
+		Subsystem->SendEvent(ChannelParent, FVector{1, 1, 1});
 		UTEST_TRUE(TEXT("Count"), Count == 0);
 		UTEST_TRUE(TEXT("Value"), (Value == FVector::ZeroVector));
 		UTEST_TRUE(TEXT("Channel"), (Channel == FGameplayTag::EmptyTag));
 	}
 
 	{
-		Subsystem->SendEvent(Child, FVector{2, 2, 2});
+		Subsystem->SendEvent(ChannelChild, FVector{2, 2, 2});
 		UTEST_TRUE(TEXT("Count"), Count == 0);
 		UTEST_TRUE(TEXT("Value"), (Value == FVector::ZeroVector));
 		UTEST_TRUE(TEXT("Channel"), (Channel == FGameplayTag::EmptyTag));
 	}
 
 	{
-		Subsystem->SendEvent(Leaf, FVector{3, 3, 3});
+		Subsystem->SendEvent(ChannelLeaf, FVector{3, 3, 3});
 		UTEST_TRUE(TEXT("Count"), Count == 1);
 		UTEST_TRUE(TEXT("Value"), (Value == FVector{3, 3, 3}));
-		UTEST_TRUE(TEXT("Channel"), (Channel.MatchesTagExact(Leaf)));
+		UTEST_TRUE(TEXT("Channel"), (Channel.MatchesTagExact(ChannelLeaf)));
 	}
 	Subsystem->RemoveReceiver(Handle);
 
