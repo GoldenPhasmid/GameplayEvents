@@ -10,10 +10,10 @@ static FAutoConsoleVariableRef CVarShouldLogGameplayEvents(
 	TEXT("Whether events sent through gameplay events subsystem should logged")
 );
 
-static bool GAllowNonLeafEventChannels = false;
-static FAutoConsoleVariableRef CVarAllowNonLeafEventChannels(
-	TEXT("GameplayEvents.AllowNonLeafEventChannels"),
-	GAllowNonLeafEventChannels,
+static bool GAllowSendingNonLeafEventChannels = false;
+static FAutoConsoleVariableRef CVarAllowSendingNonLeafEventChannels(
+	TEXT("GameplayEvents.AllowSendingNonLeafEventChannels"),
+	GAllowSendingNonLeafEventChannels,
 	TEXT("Whether non-leaf tag channels should be allowed for SendEvent")
 );
 
@@ -50,9 +50,19 @@ void UGameplayEventSubsystem::Deinitialize()
 
 void UGameplayEventSubsystem::Tick(float DeltaTime)
 {
-	for (auto& [Struct, Container]: EventContainers)
+	TArray<FChannelEvent> EventsCopy{MoveTemp(PendingEvents)};
+	for (const FChannelEvent& ChannelEvent: EventsCopy)
 	{
-		Container->BroadcastAsync();
+		FGameplayEventContainerRef EventContainer = GetOrCreateEventContainer(ChannelEvent.EventType);
+		for (FGameplayTag Tag = ChannelEvent.OriginalChannel; Tag.IsValid(); Tag = Tag.RequestDirectParent())
+		{
+			EventContainer->Broadcast(ChannelEvent, Tag);
+		}
+		
+		if (ChannelEvent.Deleter.IsBound())
+		{
+			ChannelEvent.Deleter.Execute();
+		}
 	}
 }
 
@@ -81,21 +91,23 @@ DEFINE_FUNCTION(UGameplayEventSubsystem::execK2_SendEvent)
 	{
 		if (UGameplayEventSubsystem* EventSubsystem = UGameplayEventSubsystem::Get(WorldContextObject))
 		{
-			EventSubsystem->SendEventInternal(Channel, StructProperty->Struct, EventPtr, SendEventMode);
+			FChannelEvent ChannelEvent{Channel, StructProperty->Struct,  EventPtr, FSimpleDelegate{}};
+			EventSubsystem->SendEventInternal(ChannelEvent, SendEventMode);
 		}
 	}
 	P_NATIVE_END;
 }
 
-void UGameplayEventSubsystem::SendEventInternal(const FGameplayTag& Channel, const UScriptStruct* EventType, const void* Event, ESendEventMode SendMode)
+void UGameplayEventSubsystem::SendEventInternal(const FChannelEvent& ChannelEvent, ESendEventMode SendMode)
 {
+	FGameplayTag Channel = ChannelEvent.OriginalChannel;
 	if (!Channel.IsValid())
 	{
 		return;
 	}
 	
 #if !UE_BUILD_SHIPPING
-	if (!GAllowNonLeafEventChannels)
+	if (!GAllowSendingNonLeafEventChannels)
 	{
 		const FGameplayTagContainer LeafTags = UGameplayTagsManager::Get().RequestGameplayTagChildren(Channel);
 		if (!LeafTags.IsEmpty())
@@ -130,22 +142,30 @@ void UGameplayEventSubsystem::SendEventInternal(const FGameplayTag& Channel, con
 		const FString SendModeString = SendMode == ESendEventMode::Immediate ? TEXT("Immediate") : TEXT("Async)");
 		
 		FString EventString;
-		EventType->ExportText(EventString, Event, nullptr, nullptr, PPF_None, nullptr);
+		ChannelEvent.EventType->ExportText(EventString, ChannelEvent.Event, nullptr, nullptr, PPF_None, nullptr);
 		
 		UE_LOG(LogGameplayEvents, Display, TEXT("Gameplay Event: Context: [%s], Channel: [%s], Event: [%s], Mode: [%s]"),
 			*ContextString, *Channel.ToString(), *EventString, *SendModeString);
 	}
 #endif
-	
-	FGameplayEventContainerRef EventContainer = GetOrCreateEventContainer(EventType);
 
-	for (FGameplayTag Tag = Channel; Tag.IsValid(); Tag = Tag.RequestDirectParent())
+	if (SendMode == ESendEventMode::Immediate)
 	{
-		FGameplayEventContainer::FChannelEvent Data{Channel, Tag, Event};
-	
-		EventContainer->Broadcast(MoveTemp(Data), SendMode);
+		FGameplayEventContainerRef EventContainer = GetOrCreateEventContainer(ChannelEvent.EventType);
+		for (FGameplayTag Tag = Channel; Tag.IsValid(); Tag = Tag.RequestDirectParent())
+		{
+			EventContainer->Broadcast(ChannelEvent, Tag);
+		}
+		
+		if (ChannelEvent.Deleter.IsBound())
+		{
+			ChannelEvent.Deleter.Execute();
+		}
 	}
-
+	else if (SendMode == ESendEventMode::Async)
+	{
+		PendingEvents.Add(ChannelEvent);
+	}
 }
 
 FDelegateHandle UGameplayEventSubsystem::AddReceiverInternal(const FGameplayTag& Channel, const UScriptStruct* EventType, FWrapperCallback&& InnerCallback)

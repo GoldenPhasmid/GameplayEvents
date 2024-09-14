@@ -44,19 +44,19 @@ class GAMEPLAYEVENTS_API UGameplayEventSubsystem: public UGameInstanceSubsystem,
 	friend class UAsyncAction_WaitGameplayEvent;
 	
 	using FWrapperCallback = TDelegate<void(FGameplayTag, const void*)>;
-
-	template <typename TEvent>
-	struct TChannelEvent
+	using FEventDeleter = TDelegate<void(const void*)>;
+	
+	struct FChannelEvent
 	{
-		FGameplayTag OriginalChannel;
-		FGameplayTag Channel;
-		TEvent Event;
+		FGameplayTag OriginalChannel = FGameplayTag::EmptyTag;
+		const UScriptStruct* EventType = nullptr;
+		const void* Event = nullptr;
+		FSimpleDelegate Deleter;
 	};
 	
 	struct FGameplayEventContainer
 	{
 		using FEventCallback = FWrapperCallback;
-		using FChannelEvent = TChannelEvent<const void*>;
 		using FCallbackContainer = TMulticastDelegate<void(FGameplayTag, const void*)>;
 		
 		FDelegateHandle Add(const FGameplayTag& Channel, FEventCallback&& Callback)
@@ -77,34 +77,15 @@ class GAMEPLAYEVENTS_API UGameplayEventSubsystem: public UGameInstanceSubsystem,
 			}
 		}
 		
-		void Broadcast(FChannelEvent&& Event, ESendEventMode SendMode)
+		void Broadcast(const FChannelEvent& Event, const FGameplayTag& ChannelTag)
 		{
-			if (SendMode == ESendEventMode::Async)
-			{
-				PendingEvents.Add(Forward<FChannelEvent>(Event));
-			}
-			else if (const FCallbackContainer* Container = Channels.Find(Event.Channel))
+			if (const FCallbackContainer* Container = Channels.Find(ChannelTag))
 			{
 				Container->Broadcast(Event.OriginalChannel, Event.Event);
 			}
 		}
 
-		void BroadcastAsync()
-		{
-			// make copy of pending events. Any pending events added as a result of BroadcastAsync are handled next time
-			TArray<FChannelEvent> PendingEventsCopy{MoveTemp(PendingEvents)};
-			
-			for (FChannelEvent& Event: PendingEventsCopy)
-			{
-				if (const FCallbackContainer* Container = Channels.Find(Event.Channel))
-				{
-					Container->Broadcast(Event.OriginalChannel, Event.Event);
-				}
-			}
-		}
-
 		TMap<FGameplayTag, FCallbackContainer> Channels;
-		TArray<FChannelEvent> PendingEvents;
 	};
 	
 	using FGameplayEventContainerPtr = TSharedPtr<FGameplayEventContainer>;
@@ -134,8 +115,10 @@ public:
 	template <typename TEvent, typename ...TArgs>
 	void SendEvent(const FGameplayTag& Channel, TArgs&&... Args)
 	{
-		TSharedPtr<TEvent> Event = MakeShared<TEvent>(TEvent{Forward<TArgs>(Args)...});
-		SendEventInternal(Channel, TBaseStructure<TEvent>::Get(), static_cast<const void*>(Event.Get()), ESendEventMode::Immediate);
+		TEvent Event{Forward<TArgs>(Args)...};
+		FChannelEvent ChannelEvent{Channel, TBaseStructure<TEvent>::Get(), &Event, FSimpleDelegate{}};
+		
+		SendEventInternal(ChannelEvent, ESendEventMode::Immediate);
 	}
 
 	/**
@@ -146,7 +129,8 @@ public:
 	template <typename TEvent>
 	void SendEvent(const FGameplayTag& Channel, const TEvent& Event)
 	{
-		SendEventInternal(Channel, TBaseStructure<TEvent>::Get(), static_cast<const void*>(&Event), ESendEventMode::Immediate);
+		FChannelEvent ChannelEvent{Channel, TBaseStructure<TEvent>::Get(), &Event, FSimpleDelegate{}};
+		SendEventInternal(ChannelEvent, ESendEventMode::Immediate);
 	}
 
 	/**
@@ -158,8 +142,10 @@ public:
 	template <typename TEvent, typename ...TArgs>
 	void SendEventAsync(const FGameplayTag& Channel, TArgs&&... Args)
 	{
-		TSharedPtr<TEvent> Event = MakeShared<TEvent>(TEvent{Forward<TArgs>(Args)...});
-		SendEventInternal(Channel, TBaseStructure<TEvent>::Get(), static_cast<const void*>(Event.Get()), ESendEventMode::Async);
+		TEvent* Event = new TEvent{Forward<TArgs>(Args)...};
+		FChannelEvent ChannelEvent{Channel, TBaseStructure<TEvent>::Get(), Event, FSimpleDelegate::CreateLambda([Event] { delete Event; })};
+		
+		SendEventInternal(ChannelEvent, ESendEventMode::Async);
 	}
 
 	/**
@@ -171,7 +157,10 @@ public:
 	template <typename TEvent>
 	void SendEventAsync(const FGameplayTag& Channel, const TEvent& Event)
 	{
-		SendEventInternal(Channel, TBaseStructure<TEvent>::Get(), static_cast<const void*>(&Event), ESendEventMode::Async);
+		TEvent* EventPtr = new TEvent{Event};
+		FChannelEvent ChannelEvent{Channel, TBaseStructure<TEvent>::Get(), EventPtr, FSimpleDelegate::CreateLambda([EventPtr] { delete EventPtr; })};
+		
+		SendEventInternal(ChannelEvent, ESendEventMode::Async);
 	}
 
 	/**
@@ -324,12 +313,10 @@ protected:
 
 	/**
 	 * Send event with given type on a given channel
-	 * @param Channel event channel
-	 * @param EventType event type
-	 * @param Event event to send
+	 * @param ChannelEvent event data
 	 * @param SendMode send mode, either immediate or async
 	 */
-	void SendEventInternal(const FGameplayTag& Channel, const UScriptStruct* EventType, const void* Event, ESendEventMode SendMode);
+	void SendEventInternal(const FChannelEvent& ChannelEvent, ESendEventMode SendMode);
 
 	/** add event receiver for given event type */
 	FDelegateHandle AddReceiverInternal(const FGameplayTag& Channel, const UScriptStruct* EventType, FWrapperCallback&& InnerCallback);
@@ -343,5 +330,6 @@ protected:
 	static uint32 GenerateNewID();
 
 	TMap<const UStruct*, TSharedPtr<FGameplayEventContainer>> EventContainers;
+	TArray<FChannelEvent> PendingEvents;
 	static uint32 HandleID;
 };
