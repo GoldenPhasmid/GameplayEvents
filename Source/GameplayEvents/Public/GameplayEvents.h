@@ -10,7 +10,7 @@ DECLARE_LOG_CATEGORY_EXTERN(LogGameplayEvents, Log, All);
  * Empty gameplay event
  */
 USTRUCT(BlueprintType)
-struct FEmptyEvent
+struct GAMEPLAYEVENTS_API FEmptyEvent
 {
 	GENERATED_BODY()
 };
