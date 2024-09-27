@@ -28,10 +28,12 @@ uint32 UGameplayEventSubsystem::HandleID = 1;
 
 UGameplayEventSubsystem* UGameplayEventSubsystem::Get(const UObject* WorldContextObject)
 {
-	const UWorld* World = GEngine->GetWorldFromContextObjectChecked(WorldContextObject);
-	check(World);
-	
-	return UGameInstance::GetSubsystem<UGameplayEventSubsystem>(World->GetGameInstance());
+	if (const UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull))
+	{
+		return UGameInstance::GetSubsystem<UGameplayEventSubsystem>(World->GetGameInstance());
+	}
+
+	return nullptr;
 }
 
 void UGameplayEventSubsystem::Initialize(FSubsystemCollectionBase& Collection)
