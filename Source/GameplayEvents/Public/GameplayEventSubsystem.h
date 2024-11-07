@@ -94,6 +94,7 @@ class GAMEPLAYEVENTS_API UGameplayEventSubsystem: public UGameInstanceSubsystem,
 public:
 
 	static UGameplayEventSubsystem* Get(const UObject* WorldContextObject);
+	static UGameplayEventSubsystem& GetChecked(const UObject* WorldContextObject);
 
 	//~Begin USubsystem interface
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;

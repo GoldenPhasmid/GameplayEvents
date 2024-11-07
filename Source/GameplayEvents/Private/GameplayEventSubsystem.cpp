@@ -36,6 +36,12 @@ UGameplayEventSubsystem* UGameplayEventSubsystem::Get(const UObject* WorldContex
 	return nullptr;
 }
 
+UGameplayEventSubsystem& UGameplayEventSubsystem::GetChecked(const UObject* WorldContextObject)
+{
+	const UWorld* World = GEngine->GetWorldFromContextObjectChecked(WorldContextObject);
+	return *UGameInstance::GetSubsystem<UGameplayEventSubsystem>(World->GetGameInstance());
+}
+
 void UGameplayEventSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
