@@ -35,6 +35,8 @@ struct FNativeGameplayTags: public FGameplayTagNativeAdder
 	static FNativeGameplayTags Instance;
 };
 	
+FNativeGameplayTags FNativeGameplayTags::Instance;
+	
 }
 constexpr uint32 AutomationFlags = EAutomationTestFlags::ProductFilter | EAutomationTestFlags::ApplicationContextMask;
 
@@ -108,7 +110,7 @@ bool FGameplayEventSubsystemTest_Handle::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGameplayEventTest_Callbacks, "Game.GameplayEvents.Callbacks", AutomationFlags | EAutomationTestFlags::MediumPriority)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGameplayEventTest_Callbacks, "GameplayEvents.Callbacks", AutomationFlags | EAutomationTestFlags::MediumPriority)
 
 bool FGameplayEventTest_Callbacks::RunTest(const FString& Parameters)
 {
@@ -179,7 +181,7 @@ bool FGameplayEventTest_Callbacks::RunTest(const FString& Parameters)
 	return !HasAnyErrors();
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGameplayEventTest_Events, "Game.GameplayEvents.Events", AutomationFlags | EAutomationTestFlags::MediumPriority)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGameplayEventTest_Events, "GameplayEvents.Events", AutomationFlags | EAutomationTestFlags::MediumPriority)
 
 bool FGameplayEventTest_Events::RunTest(const FString& Parameters)
 {
@@ -251,7 +253,7 @@ bool FGameplayEventTest_Events::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGameplayEventTest_Channels, "Game.GameplayEvents.Channels", AutomationFlags | EAutomationTestFlags::MediumPriority)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGameplayEventTest_Channels, "GameplayEvents.Channels", AutomationFlags | EAutomationTestFlags::MediumPriority)
 
 bool FGameplayEventTest_Channels::RunTest(const FString& Parameters)
 {
@@ -288,13 +290,13 @@ bool FGameplayEventTest_Channels::RunTest(const FString& Parameters)
 	return !HasAnyErrors();
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGameplayEventTest_SubChannels, "Game.GameplayEvents.SubChannels", AutomationFlags | EAutomationTestFlags::MediumPriority)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGameplayEventTest_SubChannels, "GameplayEvents.SubChannels", AutomationFlags | EAutomationTestFlags::MediumPriority)
 
 bool FGameplayEventTest_SubChannels::RunTest(const FString& Parameters)
 {
 	// disable non-leaf event channels to test them
-	IConsoleVariable* AllowNonLeafEventChannels = IConsoleManager::Get().FindConsoleVariable(TEXT("GameplayEvents.AllowNonLeafEventChannels"));
-	bool bAllowNonLeafEventChannels = AllowNonLeafEventChannels->GetBool();
+	IConsoleVariable* AllowNonLeafEventChannels = IConsoleManager::Get().FindConsoleVariable(TEXT("GameplayEvents.AllowSendingNonLeafEventChannels"));
+	const bool bAllowNonLeafEventChannels = AllowNonLeafEventChannels->GetBool();
 	AllowNonLeafEventChannels->Set(false);
 
 	IConsoleVariable* DumpCallstack = IConsoleManager::Get().FindConsoleVariable(TEXT("GameplayEvents.ShouldDumpCallstack"));
@@ -319,13 +321,13 @@ bool FGameplayEventTest_SubChannels::RunTest(const FString& Parameters)
 	return !HasAnyErrors();
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGameplayEventTest_EventLogging, "Game.GameplayEvents.EventLogging", AutomationFlags | EAutomationTestFlags::MediumPriority)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGameplayEventTest_EventLogging, "GameplayEvents.EventLogging", AutomationFlags | EAutomationTestFlags::MediumPriority)
 
 bool FGameplayEventTest_EventLogging::RunTest(const FString& Parameters)
 {
 	// enable gameplay event logging
 	IConsoleVariable* LogEvents = IConsoleManager::Get().FindConsoleVariable(TEXT("GameplayEvents.LogEvents"));
-	bool bLogEvents = LogEvents->GetBool();
+	const bool bLogEvents = LogEvents->GetBool();
 	LogEvents->Set(true);
 
 	UGameplayEventSubsystem* Subsystem = CreateSubsystem();
@@ -344,7 +346,7 @@ bool FGameplayEventTest_EventLogging::RunTest(const FString& Parameters)
 }
 
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGameplayEventTest_ActualChannels, "Game.GameplayEvents.ActualChannels", AutomationFlags | EAutomationTestFlags::MediumPriority)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGameplayEventTest_ActualChannels, "GameplayEvents.ActualChannels", AutomationFlags | EAutomationTestFlags::MediumPriority)
 
 bool FGameplayEventTest_ActualChannels::RunTest(const FString& Parameters)
 {
@@ -355,8 +357,8 @@ bool FGameplayEventTest_ActualChannels::RunTest(const FString& Parameters)
 	FGameplayTag Channel = FGameplayTag::EmptyTag;
 
 	// allow non-leaf event channels to test them
-	IConsoleVariable* AllowNonLeafEventChannels = IConsoleManager::Get().FindConsoleVariable(TEXT("GameplayEvents.AllowNonLeafEventChannels"));
-	bool bAllowNonLeafEventChannels = AllowNonLeafEventChannels->GetBool();
+	IConsoleVariable* AllowNonLeafEventChannels = IConsoleManager::Get().FindConsoleVariable(TEXT("GameplayEvents.AllowSendingNonLeafEventChannels"));
+	const bool bAllowNonLeafEventChannels = AllowNonLeafEventChannels->GetBool();
 	AllowNonLeafEventChannels->Set(true);
 	
 	const auto Callback = TEventCallbackWithTag<FVector>::CreateLambda([&](FGameplayTag InChannel, const FVector& InValue)
