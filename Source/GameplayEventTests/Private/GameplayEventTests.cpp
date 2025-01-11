@@ -334,10 +334,10 @@ bool FGameplayEventTest_EventLogging::RunTest(const FString& Parameters)
 	const FGameplayTag Gameplay = ChannelGameplayTag;
 	const FGameplayTag UI = ChannelUITag;
 	
-	AddExpectedMessage(TEXT("Tests\\.Channel\\.Gameplay.+Immediate"), ELogVerbosity::Display, EAutomationExpectedMessageFlags::Contains, 1);
+	AddExpectedMessage(TEXT("Tests\\.GameplayEvents\\.Channel\\.Gameplay.+Immediate"), ELogVerbosity::Display, EAutomationExpectedMessageFlags::Contains, 1);
 	Subsystem->SendEvent(Gameplay, FVector::ZeroVector);
 	
-	AddExpectedMessage(TEXT("Tests\\.Channel\\.UI.+Async"), ELogVerbosity::Display, EAutomationExpectedMessageFlags::Contains, 1);
+	AddExpectedMessage(TEXT("Tests\\.GameplayEvents\\.Channel\\.UI.+Async"), ELogVerbosity::Display, EAutomationExpectedMessageFlags::Contains, 1);
 	Subsystem->SendEventAsync(UI, FVector::ZeroVector);
 	
 	LogEvents->Set(bLogEvents);

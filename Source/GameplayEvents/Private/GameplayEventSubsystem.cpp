@@ -147,7 +147,7 @@ void UGameplayEventSubsystem::SendEventInternal(const FChannelEvent& ChannelEven
 		}
 #endif
 
-		const FString SendModeString = SendMode == ESendEventMode::Immediate ? TEXT("Immediate") : TEXT("Async)");
+		const FString SendModeString = SendMode == ESendEventMode::Immediate ? TEXT("Immediate") : TEXT("Async");
 		
 		FString EventString;
 		ChannelEvent.EventType->ExportText(EventString, ChannelEvent.Event, nullptr, nullptr, PPF_None, nullptr);
