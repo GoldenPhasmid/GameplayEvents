@@ -9,11 +9,6 @@ bool FGameplayEventHandle::IsValid() const
 
 void FGameplayEventHandle::Invalidate() const
 {
-	if (IsValid() && ::IsValid(Subsystem))
-	{
-		// @todo: RemoveReceiver?
-	}
-		
 	HandleID = 0;
 	Subsystem = nullptr;
 }

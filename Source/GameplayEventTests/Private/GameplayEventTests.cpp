@@ -1,4 +1,4 @@
-
+#include "GameplayEventTests.h"
 #include "GameplayEventSubsystem.h"
 #include "GameplayTagsManager.h"
 
@@ -40,6 +40,15 @@ FNativeGameplayTags FNativeGameplayTags::Instance;
 }
 constexpr uint32 AutomationFlags = EAutomationTestFlags::ProductFilter | EAutomationTestFlags::ApplicationContextMask;
 
+void UGameplayEventTestReceiver::OnEventReceived(const FVector& Event)
+{
+}
+
+void UGameplayEventTestReceiver::OnEventWithTagReceived(FGameplayTag EventTag, const FVector& Event)
+{
+}
+
+
 UGameplayEventSubsystem* CreateSubsystem()
 {
 	UGameInstance* GameInstance = NewObject<UGameInstance>(GEngine);
@@ -56,17 +65,16 @@ bool FGameplayEventSubsystemTest_Handle::RunTest(const FString& Parameters)
 
 	{
 		FGameplayEventHandle EmptyHandle{};
-		TestTrueExpr(!EmptyHandle.IsValid());
+		FGameplayEventHandle OtherEmptyHandle{};
+		TestTrueExpr(!EmptyHandle.IsValid() && !OtherEmptyHandle.IsValid());
+		TestTrueExpr(EmptyHandle == OtherEmptyHandle);
 	}
 
 	const FGameplayTag Channel = ChannelTag;
-	const auto Callback = TEventCallbackWithTag<FVector>::CreateLambda([](FGameplayTag, const FVector&) { });
+	const auto Callback = TGameplayEventWithTagDelegate<FVector>::CreateLambda([](FGameplayTag, const FVector&) { });
 	{
 		FGameplayEventHandle Handle = Subsystem->AddReceiver(Channel, Callback);
-
 		TestTrueExpr(Handle.IsValid());
-		Handle.Invalidate();
-		TestTrueExpr(!Handle.IsValid());
 	}
 
 	{
@@ -134,8 +142,8 @@ bool FGameplayEventTest_Callbacks::RunTest(const FString& Parameters)
 
 	FThunk Thunk;
 	auto& [CallbackCount, Value] = Thunk;
-	const auto Callback = TEventCallback<FVector>::CreateRaw(&Thunk, &FThunk::Callback);
-	const auto CallbackWithTag = TEventCallbackWithTag<FVector>::CreateRaw(&Thunk, &FThunk::CallbackWithTag);
+	const auto Callback = TGameplayEventDelegate<FVector>::CreateRaw(&Thunk, &FThunk::Callback);
+	const auto CallbackWithTag = TGameplayEventWithTagDelegate<FVector>::CreateRaw(&Thunk, &FThunk::CallbackWithTag);
 
 	const FGameplayTag Channel = ChannelGameplayTag;
 
@@ -178,6 +186,27 @@ bool FGameplayEventTest_Callbacks::RunTest(const FString& Parameters)
 		UTEST_EQUAL(TEXT("CallbackValue"), Value, (V3));
 	}
 
+	// verify that AddReciever binds to UObject functions
+	{
+		UGameplayEventTestReceiver* Receiver = NewObject<UGameplayEventTestReceiver>();
+		UGameplayEventTestReceiver* TagReceiver = NewObject<UGameplayEventTestReceiver>();
+
+		Subsystem->AddReceiver<FVector>(Channel, Receiver, &UGameplayEventTestReceiver::OnEventReceived);
+		Subsystem->AddReceiver<FVector>(Channel, TagReceiver, &UGameplayEventTestReceiver::OnEventWithTagReceived);
+	}
+
+	// verify that AddReceiver takes two lambda types
+	{
+		Subsystem->AddReceiver<FVector>(Channel, [](const FVector& Event)
+		{
+					
+		});
+		Subsystem->AddReceiver<FVector>(Channel, [](FGameplayTag Tag, const FVector& Event)
+		{
+			
+		});
+	}
+
 	return !HasAnyErrors();
 }
 
@@ -199,7 +228,7 @@ bool FGameplayEventTest_Events::RunTest(const FString& Parameters)
 
 	FThunk Thunk;
 	auto& [CallbackCount, Value] = Thunk;
-	const auto Callback = TEventCallbackWithTag<FVector>::CreateRaw(&Thunk, &FThunk::Callback);
+	const auto Callback = TGameplayEventWithTagDelegate<FVector>::CreateRaw(&Thunk, &FThunk::Callback);
 
 	UGameplayEventSubsystem* Subsystem = CreateSubsystem();
 	const FGameplayTag Channel = ChannelGameplayTag;
@@ -266,8 +295,8 @@ bool FGameplayEventTest_Channels::RunTest(const FString& Parameters)
 	int32 UICount = 0;
 	const FVector Value = FVector::ZeroVector;
 	
-	auto GameplayCallback = TEventCallbackWithTag<FVector>::CreateLambda([&GameplayCount](FGameplayTag, FVector){ ++GameplayCount; });
-	auto UICallback = TEventCallbackWithTag<FVector>::CreateLambda([&UICount](FGameplayTag, FVector) { ++UICount; });
+	auto GameplayCallback = TGameplayEventWithTagDelegate<FVector>::CreateLambda([&GameplayCount](FGameplayTag, FVector){ ++GameplayCount; });
+	auto UICallback = TGameplayEventWithTagDelegate<FVector>::CreateLambda([&UICount](FGameplayTag, FVector) { ++UICount; });
 	
 	Subsystem->AddReceiver(Gameplay, GameplayCallback);
 	Subsystem->SendEvent(Gameplay, Value);
@@ -327,6 +356,7 @@ bool FGameplayEventTest_EventLogging::RunTest(const FString& Parameters)
 {
 	// enable gameplay event logging
 	IConsoleVariable* LogEvents = IConsoleManager::Get().FindConsoleVariable(TEXT("GameplayEvents.LogEvents"));
+	check(LogEvents);
 	const bool bLogEvents = LogEvents->GetBool();
 	LogEvents->Set(true);
 
@@ -339,6 +369,7 @@ bool FGameplayEventTest_EventLogging::RunTest(const FString& Parameters)
 	
 	AddExpectedMessage(TEXT("Tests\\.GameplayEvents\\.Channel\\.UI.+Async"), ELogVerbosity::Display, EAutomationExpectedMessageFlags::Contains, 1);
 	Subsystem->SendEventAsync(UI, FVector::ZeroVector);
+	Subsystem->Tick(1.f);
 	
 	LogEvents->Set(bLogEvents);
 	
@@ -361,7 +392,7 @@ bool FGameplayEventTest_ActualChannels::RunTest(const FString& Parameters)
 	const bool bAllowNonLeafEventChannels = AllowNonLeafEventChannels->GetBool();
 	AllowNonLeafEventChannels->Set(true);
 	
-	const auto Callback = TEventCallbackWithTag<FVector>::CreateLambda([&](FGameplayTag InChannel, const FVector& InValue)
+	const auto Callback = TGameplayEventWithTagDelegate<FVector>::CreateLambda([&](FGameplayTag InChannel, const FVector& InValue)
 	{
 		Channel = InChannel; Value = InValue; ++Count;
 	});
@@ -452,9 +483,3 @@ bool FGameplayEventTest_ActualChannels::RunTest(const FString& Parameters)
 
 	return !HasAnyErrors();
 }
-
-
-
-
-
-

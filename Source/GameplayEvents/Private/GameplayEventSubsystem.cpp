@@ -51,26 +51,31 @@ void UGameplayEventSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 void UGameplayEventSubsystem::Deinitialize()
 {
+	for (const FSimpleDelegate& Deleter: PendingEventDeleters)
+	{
+		Deleter.Execute();
+	}
+	
 	EventContainers.Reset();
+	PendingEvents.Reset();
+	PendingEventDeleters.Reset();
 	
 	Super::Deinitialize();
 }
 
 void UGameplayEventSubsystem::Tick(float DeltaTime)
 {
-	TArray<FChannelEvent> EventsCopy{MoveTemp(PendingEvents)};
-	for (const FChannelEvent& ChannelEvent: EventsCopy)
+	TArray<FChannelEvent> EventsToSend{MoveTemp(PendingEvents)};
+	TArray<FSimpleDelegate> Deleters{MoveTemp(PendingEventDeleters)};
+	
+	for (const FChannelEvent& ChannelEvent: EventsToSend)
 	{
-		FGameplayEventContainerRef EventContainer = GetOrCreateEventContainer(ChannelEvent.EventType);
-		for (FGameplayTag Tag = ChannelEvent.OriginalChannel; Tag.IsValid(); Tag = Tag.RequestDirectParent())
-		{
-			EventContainer->Broadcast(ChannelEvent, Tag);
-		}
-		
-		if (ChannelEvent.Deleter.IsBound())
-		{
-			ChannelEvent.Deleter.Execute();
-		}
+		SendEventInternal(ChannelEvent, ESendEventMode::Async);
+	}
+	
+	for (const FSimpleDelegate& Deleter: Deleters)
+	{
+		Deleter.Execute();
 	}
 }
 
@@ -97,13 +102,35 @@ DEFINE_FUNCTION(UGameplayEventSubsystem::execK2_SendEvent)
 	P_NATIVE_BEGIN;
 	if (ensure((StructProperty != nullptr) && (StructProperty->Struct != nullptr) && (EventPtr != nullptr)))
 	{
+		UScriptStruct* Struct = StructProperty->Struct;
 		if (UGameplayEventSubsystem* EventSubsystem = UGameplayEventSubsystem::Get(WorldContextObject))
 		{
-			FChannelEvent ChannelEvent{Channel, StructProperty->Struct,  EventPtr, FSimpleDelegate{}};
-			EventSubsystem->SendEventInternal(ChannelEvent, SendEventMode);
+			if (SendEventMode == ESendEventMode::Async)
+			{
+				void* Event = FMemory::Malloc(Struct->GetStructureSize());
+				Struct->CopyScriptStruct(Event, EventPtr);
+
+				FChannelEvent ChannelEvent{Channel, Struct, Event};
+				EventSubsystem->AddPendingEventInternal(ChannelEvent, FSimpleDelegate::CreateLambda([Event, Struct]
+				{
+					Struct->DestroyStruct(Event);
+					FMemory::Free(Event);
+				}));
+			}
+			else if (SendEventMode == ESendEventMode::Immediate)
+			{
+				FChannelEvent ChannelEvent{Channel, Struct,  EventPtr};
+				EventSubsystem->SendEventInternal(ChannelEvent, SendEventMode);
+			}
 		}
 	}
 	P_NATIVE_END;
+}
+
+void UGameplayEventSubsystem::AddPendingEventInternal(const FChannelEvent& ChannelEvent, FSimpleDelegate EventDeleter)
+{
+	PendingEvents.Add(ChannelEvent);
+	PendingEventDeleters.Add(MoveTemp(EventDeleter));
 }
 
 void UGameplayEventSubsystem::SendEventInternal(const FChannelEvent& ChannelEvent, ESendEventMode SendMode)
@@ -123,7 +150,7 @@ void UGameplayEventSubsystem::SendEventInternal(const FChannelEvent& ChannelEven
 			UE_LOG(LogGameplayEvents, Error, TEXT("Broadcasting non-leaf tags is disabled. Possible channels: [%s]. Actual channel: [%s]"), *LeafTags.ToString(), *Channel.ToString());
 			if (GShouldDumpCallstack)
 			{
-				const uint32 DumpCallstackSize = 65535;
+				constexpr uint32 DumpCallstackSize = 65535;
 				ANSICHAR DumpCallstack[DumpCallstackSize] = { 0 };
 				const FString ScriptStack = FFrame::GetScriptCallstack(true);
 				FPlatformStackWalk::StackWalkAndDump(DumpCallstack, DumpCallstackSize, 0);
@@ -157,26 +184,14 @@ void UGameplayEventSubsystem::SendEventInternal(const FChannelEvent& ChannelEven
 	}
 #endif
 
-	if (SendMode == ESendEventMode::Immediate)
+	FGameplayEventContainerRef EventContainer = GetOrCreateEventContainer(ChannelEvent.EventType);
+	for (FGameplayTag Tag = Channel; Tag.IsValid(); Tag = Tag.RequestDirectParent())
 	{
-		FGameplayEventContainerRef EventContainer = GetOrCreateEventContainer(ChannelEvent.EventType);
-		for (FGameplayTag Tag = Channel; Tag.IsValid(); Tag = Tag.RequestDirectParent())
-		{
-			EventContainer->Broadcast(ChannelEvent, Tag);
-		}
-		
-		if (ChannelEvent.Deleter.IsBound())
-		{
-			ChannelEvent.Deleter.Execute();
-		}
-	}
-	else if (SendMode == ESendEventMode::Async)
-	{
-		PendingEvents.Add(ChannelEvent);
+		EventContainer->Broadcast(ChannelEvent, Tag);
 	}
 }
 
-FDelegateHandle UGameplayEventSubsystem::AddReceiverInternal(const FGameplayTag& Channel, const UScriptStruct* EventType, FWrapperCallback&& InnerCallback)
+FDelegateHandle UGameplayEventSubsystem::AddReceiverInternal(const FGameplayTag& Channel, const UScriptStruct* EventType, TRawGameplayEventDelegate&& InnerCallback)
 {
 	FGameplayEventContainerRef EventContainer = GetOrCreateEventContainer(EventType);
 	return EventContainer->Add(Channel, MoveTemp(InnerCallback));

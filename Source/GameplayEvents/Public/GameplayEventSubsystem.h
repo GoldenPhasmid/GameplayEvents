@@ -10,10 +10,16 @@
 class UGameplayEventSubsystem;
 
 template <typename T>
-using TEventCallbackWithTag = TDelegate<void(FGameplayTag, const T&)>;
+using TGameplayEventDelegate = TDelegate<void(const T&)>;
 
 template <typename T>
-using TEventCallback = TDelegate<void(const T&)>;
+using TGameplayEventWithTagDelegate = TDelegate<void(FGameplayTag, const T&)>;
+
+template <typename TClass, typename T>
+using TGameplayEventFunctor = void(TClass::*)(const T&);
+
+template <typename TClass, typename T>
+using TGameplayEventWithTagFunctor = void(TClass::*)(FGameplayTag, const T&);
 
 UENUM(BlueprintType)
 enum class ESendEventMode: uint8
@@ -43,25 +49,33 @@ class GAMEPLAYEVENTS_API UGameplayEventSubsystem: public UGameInstanceSubsystem,
 	
 	friend class UAsyncAction_WaitGameplayEvent;
 	
-	using FWrapperCallback = TDelegate<void(FGameplayTag, const void*)>;
-	using FEventDeleter = TDelegate<void(const void*)>;
-	
+	using TRawGameplayEventDelegate		= TDelegate<void(FGameplayTag, const void*)>;
+	using FGameplayEventPayloadDeleter	= TDelegate<void(const void*)>;
+
+	/**
+	 * Describes a single event by channel
+	 * @OriginalChannel - channel it was send by. All sub-channels also receive the same event
+	 * @Event - represented by EventType and Event data.
+	 * @CustomDeleter responsible for freeing event data if it is owned by the ChannelEvent
+	 */
 	struct FChannelEvent
 	{
+		FChannelEvent(const FGameplayTag& InChannel, const UScriptStruct* InEventType, const void* InEvent)
+			: OriginalChannel(InChannel), EventType(InEventType), Event(InEvent)
+		{}
+		
 		FGameplayTag OriginalChannel = FGameplayTag::EmptyTag;
 		const UScriptStruct* EventType = nullptr;
 		const void* Event = nullptr;
-		FSimpleDelegate Deleter;
 	};
 	
 	struct FGameplayEventContainer
 	{
-		using FEventCallback = FWrapperCallback;
 		using FCallbackContainer = TMulticastDelegate<void(FGameplayTag, const void*)>;
 		
-		FDelegateHandle Add(const FGameplayTag& Channel, FEventCallback&& Callback)
+		FDelegateHandle Add(const FGameplayTag& Channel, TRawGameplayEventDelegate&& Callback)
 		{
-			return Channels.FindOrAdd(Channel).Add(Callback);
+			return Channels.FindOrAdd(Channel).Add(Forward<TRawGameplayEventDelegate>(Callback));
 		}
 
 		void Remove(const FGameplayEventHandle& Handle)
@@ -93,7 +107,9 @@ class GAMEPLAYEVENTS_API UGameplayEventSubsystem: public UGameInstanceSubsystem,
 
 public:
 
+	/** @return event subsystem based on the world context */
 	static UGameplayEventSubsystem* Get(const UObject* WorldContextObject);
+	/** @return event subsystem and verify that it actually exists */
 	static UGameplayEventSubsystem& GetChecked(const UObject* WorldContextObject);
 
 	//~Begin USubsystem interface
@@ -117,7 +133,7 @@ public:
 	void SendEvent(const FGameplayTag& Channel, TArgs&&... Args)
 	{
 		TEvent Event{Forward<TArgs>(Args)...};
-		FChannelEvent ChannelEvent{Channel, TBaseStructure<TEvent>::Get(), &Event, FSimpleDelegate{}};
+		FChannelEvent ChannelEvent{Channel, TBaseStructure<TEvent>::Get(), &Event};
 		
 		SendEventInternal(ChannelEvent, ESendEventMode::Immediate);
 	}
@@ -130,7 +146,7 @@ public:
 	template <typename TEvent>
 	void SendEvent(const FGameplayTag& Channel, const TEvent& Event)
 	{
-		FChannelEvent ChannelEvent{Channel, TBaseStructure<TEvent>::Get(), &Event, FSimpleDelegate{}};
+		FChannelEvent ChannelEvent{Channel, TBaseStructure<TEvent>::Get(), &Event};
 		SendEventInternal(ChannelEvent, ESendEventMode::Immediate);
 	}
 
@@ -143,10 +159,10 @@ public:
 	template <typename TEvent, typename ...TArgs>
 	void SendEventAsync(const FGameplayTag& Channel, TArgs&&... Args)
 	{
-		TEvent* Event = new TEvent{Forward<TArgs>(Args)...};
-		FChannelEvent ChannelEvent{Channel, TBaseStructure<TEvent>::Get(), Event, FSimpleDelegate::CreateLambda([Event] { delete Event; })};
+		TEvent* EventPtr = new TEvent{Forward<TArgs>(Args)...};
+		FChannelEvent ChannelEvent{Channel, TBaseStructure<TEvent>::Get(), EventPtr};
 		
-		SendEventInternal(ChannelEvent, ESendEventMode::Async);
+		AddPendingEventInternal(ChannelEvent, FSimpleDelegate::CreateLambda([EventPtr] { delete EventPtr; }));
 	}
 
 	/**
@@ -159,11 +175,40 @@ public:
 	void SendEventAsync(const FGameplayTag& Channel, const TEvent& Event)
 	{
 		TEvent* EventPtr = new TEvent{Event};
-		FChannelEvent ChannelEvent{Channel, TBaseStructure<TEvent>::Get(), EventPtr, FSimpleDelegate::CreateLambda([EventPtr] { delete EventPtr; })};
-		
-		SendEventInternal(ChannelEvent, ESendEventMode::Async);
+		FChannelEvent ChannelEvent{Channel, TBaseStructure<TEvent>::Get(), EventPtr};
+
+		AddPendingEventInternal(ChannelEvent, FSimpleDelegate::CreateLambda([EventPtr] { delete EventPtr; }));
 	}
 
+
+	/** Bind lambda to receive gameplay events on a specified channel, void(const TEvent&) callback format */
+	template <typename TEvent>
+	FGameplayEventHandle AddReceiver(FGameplayTag Channel, TFunction<void(const FVector&)> Callback)
+	{
+		return AddReceiver(Channel, TGameplayEventDelegate<TEvent>::CreateLambda(Callback));
+	}
+
+	/** Bind lambda to receive gameplay events on a specified channel, void(FGameplayTag Tag, const TEvent&) callback format */
+	template <typename TEvent>
+	FGameplayEventHandle AddReceiver(FGameplayTag Channel, TFunction<void(FGameplayTag, const FVector&)> Callback)
+	{
+		return AddReceiver(Channel, TGameplayEventWithTagDelegate<TEvent>::CreateLambda(Callback));
+	}
+
+	/** Bind UObject function to receive gameplay events on a specified channel, void(const TEvent&) callback format */
+	template <typename TEvent, typename TObject>
+	FGameplayEventHandle AddReceiver(FGameplayTag Channel, TObject* Receiver, TGameplayEventFunctor<TObject, TEvent> Callback)
+	{
+		return AddReceiver(Channel, TGameplayEventDelegate<TEvent>::CreateUObject(Receiver, Callback));
+	}
+
+	/** Bind UObject function to receive gameplay events on a specified channel, void(FGameplayTag Tag, const TEvent&) callback format */
+	template <typename TEvent, typename TObject>
+	FGameplayEventHandle AddReceiver(FGameplayTag Channel, TObject* Receiver, TGameplayEventWithTagFunctor<TObject, TEvent> Callback)
+	{
+		return AddReceiver(Channel, TGameplayEventWithTagDelegate<TEvent>::CreateUObject(Receiver, Callback));
+	}
+	
 	/**
 	 * Add receiver to a specified channel to receive events of a specified template type
 	 * This is a version that receives void(const TEvent&) callback format
@@ -173,12 +218,12 @@ public:
 	 * @return gameplay event handle, which can be used to remove this receiver
 	 */
 	template <typename TEvent>
-	FGameplayEventHandle AddReceiver(FGameplayTag Channel, TEventCallback<TEvent>&& Callback)
+	FGameplayEventHandle AddReceiver(FGameplayTag Channel, TGameplayEventDelegate<TEvent>&& Callback)
 	{
 		const UScriptStruct* EventType = TBaseStructure<TEvent>::Get();
 		FGameplayEventHandle EventHandle{this, GenerateNewID(), Channel, EventType};
 
-		FWrapperCallback ThunkCallback = FWrapperCallback::CreateLambda([InnerCallback = Forward<TEventCallback<TEvent>>(Callback)]
+		TRawGameplayEventDelegate ThunkCallback = TRawGameplayEventDelegate::CreateLambda([InnerCallback = Forward<TGameplayEventDelegate<TEvent>>(Callback)]
 			(FGameplayTag Channel, const void* Event)
 		{
 			if (InnerCallback.IsBound())
@@ -194,19 +239,19 @@ public:
 
 	/**
 	 * Add receiver to a specified channel to receive events of a specified template type
-	 * This is a version that receives void(const TEvent&) callback format
+	 * This is a version that receives void(FGameplayTag Tag, const TEvent&) callback format
 	 * @param Channel event channel to listen
 	 * @param Callback callback function to call with the event when someone sends it
 	 * 
 	 * @return gameplay event handle, which can be used to remove this receiver
 	 */
 	template <typename TEvent>
-	FGameplayEventHandle AddReceiver(FGameplayTag Channel, const TEventCallback<TEvent>& Callback)
+	FGameplayEventHandle AddReceiver(FGameplayTag Channel, const TGameplayEventDelegate<TEvent>& Callback)
 	{
 		const UScriptStruct* EventType = TBaseStructure<TEvent>::Get();
 		FGameplayEventHandle EventHandle{this, GenerateNewID(), Channel, EventType};
 		
-		FWrapperCallback ThunkCallback = FWrapperCallback::CreateLambda([InnerCallback = Callback]
+		TRawGameplayEventDelegate ThunkCallback = TRawGameplayEventDelegate::CreateLambda([InnerCallback = Callback]
 			(FGameplayTag Channel, const void* Event)
 		{
 			if (InnerCallback.IsBound())
@@ -231,12 +276,12 @@ public:
 	 * @return gameplay event handle, which can be used to remove this receiver
 	 */
 	template <typename TEvent>
-	FGameplayEventHandle AddReceiver(FGameplayTag Channel, TEventCallbackWithTag<TEvent>&& Callback)
+	FGameplayEventHandle AddReceiver(FGameplayTag Channel, TGameplayEventWithTagDelegate<TEvent>&& Callback)
 	{
 		const UScriptStruct* EventType = TBaseStructure<TEvent>::Get();
 		FGameplayEventHandle EventHandle{this, GenerateNewID(), Channel, EventType};
 
-		FWrapperCallback ThunkCallback = FWrapperCallback::CreateLambda([InnerCallback = Forward<TEventCallbackWithTag<TEvent>>(Callback)]
+		TRawGameplayEventDelegate ThunkCallback = TRawGameplayEventDelegate::CreateLambda([InnerCallback = Forward<TGameplayEventWithTagDelegate<TEvent>>(Callback)]
 			(FGameplayTag Channel, const void* Event)
 		{
 			if (InnerCallback.IsBound())
@@ -260,12 +305,12 @@ public:
 	 * @return gameplay event handle, which can be used to remove this receiver
 	 */
 	template <typename TEvent>
-	FGameplayEventHandle AddReceiver(FGameplayTag Channel, const TEventCallbackWithTag<TEvent>& Callback)
+	FGameplayEventHandle AddReceiver(FGameplayTag Channel, const TGameplayEventWithTagDelegate<TEvent>& Callback)
 	{
 		const UScriptStruct* EventType = TBaseStructure<TEvent>::Get();
 		FGameplayEventHandle EventHandle{this, GenerateNewID(), Channel, EventType};
 		
-		FWrapperCallback ThunkCallback = FWrapperCallback::CreateLambda([InnerCallback = Callback]
+		TRawGameplayEventDelegate ThunkCallback = TRawGameplayEventDelegate::CreateLambda([InnerCallback = Callback]
 			(FGameplayTag Channel, const void* Event)
 		{
 			if (InnerCallback.IsBound())
@@ -288,15 +333,17 @@ public:
 		RemoveReceiverInternal(EventHandle);
 	}
 
-#if 0
-	void RemoveAll(const void* UserObject)
+	/**
+	 * Remove previous registered event receivers
+	 * @param EventHandles handles to gameplay events
+	 */
+	void RemoveReceivers(TConstArrayView<FGameplayEventHandle> EventHandles)
 	{
-		for (auto& [Struct, Container]: EventContainers)
+		for (const FGameplayEventHandle& EventHandle : EventHandles)
 		{
-			Container->RemoveAll(UserObject);
+			RemoveReceiverInternal(EventHandle);
 		}
 	}
-#endif
 
 protected:
 	
@@ -312,6 +359,9 @@ protected:
 
 	DECLARE_FUNCTION(execK2_SendEvent);
 
+	/** add pending event with a custom event deleter */
+	void AddPendingEventInternal(const FChannelEvent& ChannelEvent, FSimpleDelegate EventDeleter);
+	
 	/**
 	 * Send event with given type on a given channel
 	 * @param ChannelEvent event data
@@ -320,7 +370,7 @@ protected:
 	void SendEventInternal(const FChannelEvent& ChannelEvent, ESendEventMode SendMode);
 
 	/** add event receiver for given event type */
-	FDelegateHandle AddReceiverInternal(const FGameplayTag& Channel, const UScriptStruct* EventType, FWrapperCallback&& InnerCallback);
+	FDelegateHandle AddReceiverInternal(const FGameplayTag& Channel, const UScriptStruct* EventType, TRawGameplayEventDelegate&& InnerCallback);
 
 	/** Remove event receiver using event handle */
 	void RemoveReceiverInternal(const FGameplayEventHandle& EventHandle);
@@ -332,5 +382,6 @@ protected:
 
 	TMap<const UStruct*, TSharedPtr<FGameplayEventContainer>> EventContainers;
 	TArray<FChannelEvent> PendingEvents;
+	TArray<FSimpleDelegate> PendingEventDeleters;
 	static uint32 HandleID;
 };

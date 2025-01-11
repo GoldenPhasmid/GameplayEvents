@@ -24,14 +24,14 @@ void UAsyncAction_WaitGameplayEvent::Activate()
 		EventHandle = FGameplayEventHandle{Subsystem, Subsystem->GenerateNewID(), Channel, EventType.Get()};
 		
 		TWeakObjectPtr<ThisClass> WeakThis(this);
-		auto WrapperCallback = UGameplayEventSubsystem::FWrapperCallback::CreateLambda([WeakThis](FGameplayTag ActualTag, const void* Event)
+		auto RawEvent = UGameplayEventSubsystem::TRawGameplayEventDelegate::CreateLambda([WeakThis](FGameplayTag ActualTag, const void* Event)
 		{
 			if (UAsyncAction_WaitGameplayEvent* This = WeakThis.Get())
 			{
 				This->HandleEventReceived(ActualTag, Event);
 			}
 		});
-		EventHandle.DelegateHandle = Subsystem->AddReceiverInternal(Channel, EventType.Get(), MoveTemp(WrapperCallback));
+		EventHandle.DelegateHandle = Subsystem->AddReceiverInternal(Channel, EventType.Get(), MoveTemp(RawEvent));
 	}
 	else
 	{
