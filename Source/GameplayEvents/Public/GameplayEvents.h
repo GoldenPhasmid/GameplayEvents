@@ -6,11 +6,17 @@
 
 DECLARE_LOG_CATEGORY_EXTERN(LogGameplayEvents, Log, All);
 
+USTRUCT(BlueprintType)
+struct GAMEPLAYEVENTS_API FGameplayEventBase
+{
+	GENERATED_BODY()
+};
+
 /**
  * Empty gameplay event
  */
 USTRUCT(BlueprintType)
-struct GAMEPLAYEVENTS_API FEmptyEvent
+struct GAMEPLAYEVENTS_API FEmptyEvent: public FGameplayEventBase
 {
 	GENERATED_BODY()
 };
@@ -19,7 +25,7 @@ struct GAMEPLAYEVENTS_API FEmptyEvent
  * Generic object gameplay event
  */
 USTRUCT(BlueprintType)
-struct GAMEPLAYEVENTS_API FObjectGameplayEvent
+struct GAMEPLAYEVENTS_API FObjectGameplayEvent: public FGameplayEventBase
 {
 	GENERATED_BODY()
 
@@ -31,7 +37,7 @@ struct GAMEPLAYEVENTS_API FObjectGameplayEvent
  * Generic actor gameplay event
  */
 USTRUCT(BlueprintType)
-struct GAMEPLAYEVENTS_API FActorGameplayEvent
+struct GAMEPLAYEVENTS_API FActorGameplayEvent: public FGameplayEventBase
 {
 	GENERATED_BODY()
 

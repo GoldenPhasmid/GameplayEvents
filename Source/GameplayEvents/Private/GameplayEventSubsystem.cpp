@@ -70,7 +70,7 @@ void UGameplayEventSubsystem::Tick(float DeltaTime)
 	
 	for (const FChannelEvent& ChannelEvent: EventsToSend)
 	{
-		SendEventInternal(ChannelEvent, ESendEventMode::Async);
+		SendEventInternal(ChannelEvent, ESendEventMode::Delayed);
 	}
 	
 	for (const FSimpleDelegate& Deleter: Deleters)
@@ -105,7 +105,7 @@ DEFINE_FUNCTION(UGameplayEventSubsystem::execK2_SendEvent)
 		UScriptStruct* Struct = StructProperty->Struct;
 		if (UGameplayEventSubsystem* EventSubsystem = UGameplayEventSubsystem::Get(WorldContextObject))
 		{
-			if (SendEventMode == ESendEventMode::Async)
+			if (SendEventMode == ESendEventMode::Delayed)
 			{
 				void* Event = FMemory::Malloc(Struct->GetStructureSize());
 				Struct->CopyScriptStruct(Event, EventPtr);

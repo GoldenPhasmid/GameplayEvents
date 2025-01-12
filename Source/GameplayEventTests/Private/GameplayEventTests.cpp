@@ -244,7 +244,7 @@ bool FGameplayEventTest_Events::RunTest(const FString& Parameters)
 
 	//broadcast async works
 	FVector V2{2, 2, 2};
-	Subsystem->SendEventAsync(Channel, V2);
+	Subsystem->SendEventDelayed(Channel, V2);
 
 	UTEST_EQUAL(TEXT("CallbackCount"), CallbackCount, 1);
 	UTEST_EQUAL(TEXT("CallbackValue"), Value, (V1));
@@ -368,7 +368,7 @@ bool FGameplayEventTest_EventLogging::RunTest(const FString& Parameters)
 	Subsystem->SendEvent(Gameplay, FVector::ZeroVector);
 	
 	AddExpectedMessage(TEXT("Tests\\.GameplayEvents\\.Channel\\.UI.+Async"), ELogVerbosity::Display, EAutomationExpectedMessageFlags::Contains, 1);
-	Subsystem->SendEventAsync(UI, FVector::ZeroVector);
+	Subsystem->SendEventDelayed(UI, FVector::ZeroVector);
 	Subsystem->Tick(1.f);
 	
 	LogEvents->Set(bLogEvents);

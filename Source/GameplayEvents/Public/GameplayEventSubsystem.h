@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameplayTagContainer.h"
 #include "Subsystems/GameInstanceSubsystem.h"
+#include "GameplayEvents.h"
 #include "GameplayEventHandle.h"
 
 #include "GameplayEventSubsystem.generated.h"
@@ -25,7 +26,7 @@ UENUM(BlueprintType)
 enum class ESendEventMode: uint8
 {
 	Immediate,	// event is sent immediately
-	Async,		// event is going to be sent by the end of the frame
+	Delayed,	// event is going to be sent by the end of the frame
 };
 
 /**
@@ -55,8 +56,8 @@ class GAMEPLAYEVENTS_API UGameplayEventSubsystem: public UGameInstanceSubsystem,
 	/**
 	 * Describes a single event by channel
 	 * @OriginalChannel - channel it was send by. All sub-channels also receive the same event
-	 * @Event - represented by EventType and Event data.
-	 * @CustomDeleter responsible for freeing event data if it is owned by the ChannelEvent
+	 * @EventType - EventType, filters receivers that listen on a channel
+	 * @EventData - EventData, primary data payload
 	 */
 	struct FChannelEvent
 	{
@@ -130,11 +131,13 @@ public:
 	 * @param Args arguments to construct the event
 	 */
 	template <typename TEvent, typename ...TArgs>
-	void SendEvent(const FGameplayTag& Channel, TArgs&&... Args)
+	void SendEvent(const FGameplayTag& Channel, TArgs&&... Args) requires std::is_copy_constructible_v<TEvent>
 	{
+		static_assert(REQUIRE_BASE_EVENT_CLASS == false || std::is_convertible_v<TEvent, FGameplayEventBase>, "Event must derive from FGameplayEventBase");
+		check(IsInGameThread());
 		TEvent Event{Forward<TArgs>(Args)...};
+
 		FChannelEvent ChannelEvent{Channel, TBaseStructure<TEvent>::Get(), &Event};
-		
 		SendEventInternal(ChannelEvent, ESendEventMode::Immediate);
 	}
 
@@ -144,25 +147,78 @@ public:
 	 * @param Event event to send
 	 */
 	template <typename TEvent>
-	void SendEvent(const FGameplayTag& Channel, const TEvent& Event)
+	void SendEvent(const FGameplayTag& Channel, const TEvent& Event) requires std::is_copy_constructible_v<TEvent>
 	{
+		static_assert(REQUIRE_BASE_EVENT_CLASS == false || std::is_convertible_v<TEvent, FGameplayEventBase>, "Event must derive from FGameplayEventBase");
+		check(IsInGameThread());
+		
 		FChannelEvent ChannelEvent{Channel, TBaseStructure<TEvent>::Get(), &Event};
 		SendEventInternal(ChannelEvent, ESendEventMode::Immediate);
 	}
 
 	/**
-	 * Send delayed event on a specified channel, so that subscribers don't receive immediate notification
-	 * @note delayed events are processed at the end of the frame
+	 * Send event on a specified channel from another thread to game thread via Task Graph
+	 * @param Channel event channel to send event to
+	 * @param Args arguments to construct the event
+	 */
+	template <typename TEvent, typename ...TArgs>
+	void SendEventAsync(const FGameplayTag& Channel, TArgs&&... Args) requires std::is_copy_constructible_v<TEvent>
+	{
+		static_assert(REQUIRE_BASE_EVENT_CLASS == false || std::is_convertible_v<TEvent, FGameplayEventBase>, "Event must derive from FGameplayEventBase");
+		check(!IsInGameThread());
+		
+		TEvent Event{Forward<TArgs>(Args)...};
+		FFunctionGraphTask::CreateAndDispatchWhenReady([this, Event, Channel]
+		{
+			FChannelEvent ChannelEvent{Channel, TBaseStructure<TEvent>::Get(), &Event};
+			SendEventInternal(ChannelEvent, ESendEventMode::Immediate);
+		});
+	}
+
+	/**
+	 * Send event on a specified channel from another thread to game thread via Task Graph
+	 * @param Channel event channel to send event to
+	 * @param Event event to send
+	 */
+	template <typename TEvent>
+	void SendEventAsync(const FGameplayTag& Channel, const TEvent& Event) requires std::is_copy_constructible_v<TEvent>
+	{
+		static_assert(REQUIRE_BASE_EVENT_CLASS == false || std::is_convertible_v<TEvent, FGameplayEventBase>, "Event must derive from FGameplayEventBase");
+		check(!IsInGameThread());
+		
+		FFunctionGraphTask::CreateAndDispatchWhenReady([this, Event, Channel]
+		{
+			FChannelEvent ChannelEvent{Channel, TBaseStructure<TEvent>::Get(), &Event};
+			SendEventInternal(ChannelEvent, ESendEventMode::Immediate);
+		});
+	}
+
+	/**
+	 * Send delayed event on a specified channel, so that subscribers don't receive immediate notification.
+	 * Delayed events are processed at the end of the frame
 	 * @param Channel event channel to send event to
 	 * @param Args arguments to construct event from
 	 */
 	template <typename TEvent, typename ...TArgs>
-	void SendEventAsync(const FGameplayTag& Channel, TArgs&&... Args)
+	void SendEventDelayed(const FGameplayTag& Channel, TArgs&&... Args) requires std::is_copy_constructible_v<TEvent>
 	{
-		TEvent* EventPtr = new TEvent{Forward<TArgs>(Args)...};
-		FChannelEvent ChannelEvent{Channel, TBaseStructure<TEvent>::Get(), EventPtr};
-		
-		AddPendingEventInternal(ChannelEvent, FSimpleDelegate::CreateLambda([EventPtr] { delete EventPtr; }));
+		static_assert(REQUIRE_BASE_EVENT_CLASS == false || std::is_convertible_v<TEvent, FGameplayEventBase>, "Event must derive from FGameplayEventBase");
+		if (LIKELY(IsInGameThread()))
+		{
+			TEvent* EventPtr = new TEvent{Forward<TArgs>(Args)...};
+			FChannelEvent ChannelEvent{Channel, TBaseStructure<TEvent>::Get(), EventPtr};
+			AddPendingEventInternal(ChannelEvent, FSimpleDelegate::CreateLambda([EventPtr] { delete EventPtr; }));
+		}
+		else
+		{
+			TEvent Event{Forward<TArgs>(Args)...};
+			FFunctionGraphTask::CreateAndDispatchWhenReady([this, Event, Channel]
+			{
+				TEvent* EventPtr = new TEvent{Event};
+				FChannelEvent ChannelEvent{Channel, TBaseStructure<TEvent>::Get(), EventPtr};
+				AddPendingEventInternal(ChannelEvent, FSimpleDelegate::CreateLambda([EventPtr] { delete EventPtr; }));
+			});
+		}
 	}
 
 	/**
@@ -172,25 +228,39 @@ public:
 	 * @param Event event to send
 	 */
 	template <typename TEvent>
-	void SendEventAsync(const FGameplayTag& Channel, const TEvent& Event)
+	void SendEventDelayed(const FGameplayTag& Channel, const TEvent& Event) requires std::is_copy_constructible_v<TEvent>
 	{
-		TEvent* EventPtr = new TEvent{Event};
-		FChannelEvent ChannelEvent{Channel, TBaseStructure<TEvent>::Get(), EventPtr};
+		static_assert(REQUIRE_BASE_EVENT_CLASS == false || std::is_convertible_v<TEvent, FGameplayEventBase>, "Event must derive from FGameplayEventBase");
+		if (LIKELY(IsInGameThread()))
+		{
+			TEvent* EventPtr = new TEvent{Event};
+			FChannelEvent ChannelEvent{Channel, TBaseStructure<TEvent>::Get(), EventPtr};
 
-		AddPendingEventInternal(ChannelEvent, FSimpleDelegate::CreateLambda([EventPtr] { delete EventPtr; }));
+			AddPendingEventInternal(ChannelEvent, FSimpleDelegate::CreateLambda([EventPtr] { delete EventPtr; }));
+		}
+		else
+		{
+			FFunctionGraphTask::CreateAndDispatchWhenReady([this, Event, Channel]
+			{
+				TEvent* EventPtr = new TEvent{Event};
+				FChannelEvent ChannelEvent{Channel, TBaseStructure<TEvent>::Get(), EventPtr};
+
+				AddPendingEventInternal(ChannelEvent, FSimpleDelegate::CreateLambda([EventPtr] { delete EventPtr; }));
+			});
+		}
 	}
 
 
 	/** Bind lambda to receive gameplay events on a specified channel, void(const TEvent&) callback format */
 	template <typename TEvent>
-	FGameplayEventHandle AddReceiver(FGameplayTag Channel, TFunction<void(const FVector&)> Callback)
+	FGameplayEventHandle AddReceiver(FGameplayTag Channel, TFunction<void(const TEvent&)> Callback)
 	{
 		return AddReceiver(Channel, TGameplayEventDelegate<TEvent>::CreateLambda(Callback));
 	}
 
 	/** Bind lambda to receive gameplay events on a specified channel, void(FGameplayTag Tag, const TEvent&) callback format */
 	template <typename TEvent>
-	FGameplayEventHandle AddReceiver(FGameplayTag Channel, TFunction<void(FGameplayTag, const FVector&)> Callback)
+	FGameplayEventHandle AddReceiver(FGameplayTag Channel, TFunction<void(FGameplayTag, const TEvent&)> Callback)
 	{
 		return AddReceiver(Channel, TGameplayEventWithTagDelegate<TEvent>::CreateLambda(Callback));
 	}
@@ -220,6 +290,7 @@ public:
 	template <typename TEvent>
 	FGameplayEventHandle AddReceiver(FGameplayTag Channel, TGameplayEventDelegate<TEvent>&& Callback)
 	{
+		check(IsInGameThread());
 		const UScriptStruct* EventType = TBaseStructure<TEvent>::Get();
 		FGameplayEventHandle EventHandle{this, GenerateNewID(), Channel, EventType};
 
@@ -248,6 +319,7 @@ public:
 	template <typename TEvent>
 	FGameplayEventHandle AddReceiver(FGameplayTag Channel, const TGameplayEventDelegate<TEvent>& Callback)
 	{
+		check(IsInGameThread());
 		const UScriptStruct* EventType = TBaseStructure<TEvent>::Get();
 		FGameplayEventHandle EventHandle{this, GenerateNewID(), Channel, EventType};
 		
@@ -278,10 +350,11 @@ public:
 	template <typename TEvent>
 	FGameplayEventHandle AddReceiver(FGameplayTag Channel, TGameplayEventWithTagDelegate<TEvent>&& Callback)
 	{
+		check(IsInGameThread());
 		const UScriptStruct* EventType = TBaseStructure<TEvent>::Get();
 		FGameplayEventHandle EventHandle{this, GenerateNewID(), Channel, EventType};
 
-		TRawGameplayEventDelegate ThunkCallback = TRawGameplayEventDelegate::CreateLambda([InnerCallback = Forward<TGameplayEventWithTagDelegate<TEvent>>(Callback)]
+		TRawGameplayEventDelegate RawEvent = TRawGameplayEventDelegate::CreateLambda([InnerCallback = Forward<TGameplayEventWithTagDelegate<TEvent>>(Callback)]
 			(FGameplayTag Channel, const void* Event)
 		{
 			if (InnerCallback.IsBound())
@@ -290,7 +363,7 @@ public:
 			}
 		});
 		
-		EventHandle.DelegateHandle = AddReceiverInternal(Channel, EventType, MoveTemp(ThunkCallback));
+		EventHandle.DelegateHandle = AddReceiverInternal(Channel, EventType, MoveTemp(RawEvent));
 
 		return EventHandle;
 	}
@@ -307,10 +380,11 @@ public:
 	template <typename TEvent>
 	FGameplayEventHandle AddReceiver(FGameplayTag Channel, const TGameplayEventWithTagDelegate<TEvent>& Callback)
 	{
+		check(IsInGameThread());
 		const UScriptStruct* EventType = TBaseStructure<TEvent>::Get();
 		FGameplayEventHandle EventHandle{this, GenerateNewID(), Channel, EventType};
 		
-		TRawGameplayEventDelegate ThunkCallback = TRawGameplayEventDelegate::CreateLambda([InnerCallback = Callback]
+		TRawGameplayEventDelegate RawEvent = TRawGameplayEventDelegate::CreateLambda([InnerCallback = Callback]
 			(FGameplayTag Channel, const void* Event)
 		{
 			if (InnerCallback.IsBound())
@@ -319,7 +393,7 @@ public:
 			}
 		});
 		
-		EventHandle.DelegateHandle = AddReceiverInternal(Channel, EventType, MoveTemp(ThunkCallback));
+		EventHandle.DelegateHandle = AddReceiverInternal(Channel, EventType, MoveTemp(RawEvent));
 
 		return EventHandle;
 	}
@@ -354,7 +428,7 @@ protected:
 	 * @param Event event payload
 	 * @param SendMode send mode, either immediate or async
 	 */
-	UFUNCTION(BlueprintCallable, CustomThunk, Category = "Events", meta = (DefaultToSelf = "WorldContextObject", CustomStructureParam = "Event", AllowAbstract = "false", DisplayName = "Send Event"))
+	UFUNCTION(BlueprintCallable, CustomThunk, Category = "Events", meta = (DefaultToSelf = "WorldContextObject", CustomStructureParam = "Event", AllowAbstract = "false", DisplayName = "Send Gameplay Event"))
 	static void K2_SendEvent(const UObject* WorldContextObject, FGameplayTag Channel, const int32& Event, ESendEventMode SendMode);
 
 	DECLARE_FUNCTION(execK2_SendEvent);

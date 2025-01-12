@@ -24,5 +24,7 @@ public class GameplayEvents : ModuleRules
 			"Slate",
 			"SlateCore"
 		});
+
+		PublicDefinitions.Add("REQUIRE_BASE_EVENT_CLASS = 0");
 	}
 }
