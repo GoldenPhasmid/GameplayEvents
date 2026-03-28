@@ -22,5 +22,14 @@ public class GameplayEventTests : ModuleRules
                 "GameplayTags",
             }
         );
+
+        if (Target.Version.MinorVersion >= 5)
+        {
+            PublicDefinitions.Add("AUTOTEST_APPLICATION_MASK=EAutomationTestFlags_ApplicationContextMask");
+        }
+        else
+        {
+            PublicDefinitions.Add("AUTOTEST_APPLICATION_MASK=EAutomationTestFlags::ApplicationContextMask");
+        }
     }
 }

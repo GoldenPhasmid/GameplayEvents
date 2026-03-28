@@ -38,7 +38,7 @@ struct FNativeGameplayTags: public FGameplayTagNativeAdder
 FNativeGameplayTags FNativeGameplayTags::Instance;
 	
 }
-constexpr uint32 AutomationFlags = EAutomationTestFlags::ProductFilter | EAutomationTestFlags::ApplicationContextMask;
+constexpr EAutomationTestFlags AutomationFlags = EAutomationTestFlags::ProductFilter | AUTOTEST_APPLICATION_MASK;
 
 void UGameplayEventTestReceiver::OnEventReceived(const FVector& Event)
 {

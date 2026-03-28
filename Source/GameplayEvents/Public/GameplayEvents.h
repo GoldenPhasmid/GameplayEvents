@@ -30,7 +30,7 @@ struct GAMEPLAYEVENTS_API FObjectGameplayEvent: public FGameplayEventBase
 	GENERATED_BODY()
 
 	UPROPERTY(BlueprintReadWrite)
-	UObject* Object = nullptr;
+	TObjectPtr<UObject> Object = nullptr;
 };
 
 /**
@@ -42,5 +42,5 @@ struct GAMEPLAYEVENTS_API FActorGameplayEvent: public FGameplayEventBase
 	GENERATED_BODY()
 
 	UPROPERTY(BlueprintReadWrite)
-	AActor* Actor = nullptr;
+	TObjectPtr<AActor> Actor = nullptr;
 };
