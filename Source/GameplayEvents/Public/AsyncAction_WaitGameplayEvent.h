@@ -16,6 +16,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FGameplayEventDelegate, UAsyncActio
 /**
  * Wait for gameplay event on a channel
  * @todo: create ability task that automatically stops when after ability has ended
+ * @todo: needs autotests
  */
 UCLASS(BlueprintType, meta = (HasDedicatedAsyncNode))
 class GAMEPLAYEVENTS_API UAsyncAction_WaitGameplayEvent: public UCancellableAsyncAction

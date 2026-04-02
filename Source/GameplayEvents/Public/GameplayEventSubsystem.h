@@ -48,11 +48,10 @@ class GAMEPLAYEVENTS_API UGameplayEventSubsystem: public UGameInstanceSubsystem,
 {
 	GENERATED_BODY()
 	
-	friend class UAsyncAction_WaitGameplayEvent;
-	
 	using TRawGameplayEventDelegate		= TDelegate<void(FGameplayTag, const void*)>;
 	using FGameplayEventPayloadDeleter	= TDelegate<void(const void*)>;
 
+private:
 	/**
 	 * Describes a single event by channel
 	 * @OriginalChannel - channel it was send by. All sub-channels also receive the same event
@@ -250,6 +249,11 @@ public:
 		}
 	}
 
+	void SendEvent(const FGameplayTag& InChannel, const UScriptStruct* InEventType, const void* InEvent)
+	{
+		check(InChannel.IsValid() && InEventType != nullptr && InEvent != nullptr);
+		SendEventInternal(FChannelEvent{InChannel, InEventType, InEvent}, ESendEventMode::Immediate);
+	}
 
 	/** Bind lambda to receive gameplay events on a specified channel, void(const TEvent&) callback format */
 	template <typename TEvent>
@@ -419,6 +423,9 @@ public:
 		}
 	}
 
+	using TRawEventDelegate = TDelegate<void(FGameplayTag, const UScriptStruct*, const void*)>;
+	FGameplayEventHandle AddRawReceiver(const FGameplayTag& Channel, const UScriptStruct* EventType, TRawEventDelegate&& Delegate);
+	
 protected:
 	
 	/**
@@ -442,15 +449,16 @@ protected:
 	 * @param SendMode send mode, either immediate or async
 	 */
 	void SendEventInternal(const FChannelEvent& ChannelEvent, ESendEventMode SendMode);
+	
+	/** @return gameplay event container for given event type */
+	FGameplayEventContainerRef GetOrCreateEventContainer(const UScriptStruct* EventType);
 
 	/** add event receiver for given event type */
 	FDelegateHandle AddReceiverInternal(const FGameplayTag& Channel, const UScriptStruct* EventType, TRawGameplayEventDelegate&& InnerCallback);
 
 	/** Remove event receiver using event handle */
 	void RemoveReceiverInternal(const FGameplayEventHandle& EventHandle);
-	
-	/** @return gameplay event container for given event type */
-	FGameplayEventContainerRef GetOrCreateEventContainer(const UScriptStruct* EventType);
+
 
 	static uint32 GenerateNewID();
 

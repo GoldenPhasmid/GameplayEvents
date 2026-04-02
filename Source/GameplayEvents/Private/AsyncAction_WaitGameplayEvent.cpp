@@ -21,17 +21,18 @@ void UAsyncAction_WaitGameplayEvent::Activate()
 
 	if (UGameplayEventSubsystem* Subsystem = UGameplayEventSubsystem::Get(World.Get()))
 	{
-		EventHandle = FGameplayEventHandle{Subsystem, Subsystem->GenerateNewID(), Channel, EventType.Get()};
-		
 		TWeakObjectPtr<ThisClass> WeakThis(this);
-		auto RawEvent = UGameplayEventSubsystem::TRawGameplayEventDelegate::CreateLambda([WeakThis](FGameplayTag ActualTag, const void* Event)
+		auto RawEvent = UGameplayEventSubsystem::TRawEventDelegate::CreateLambda([WeakThis](FGameplayTag ActualTag, const UScriptStruct* EventType, const void* Event)
 		{
 			if (UAsyncAction_WaitGameplayEvent* This = WeakThis.Get())
 			{
-				This->HandleEventReceived(ActualTag, Event);
+				if (This->EventType.Get() == EventType)
+				{
+					This->HandleEventReceived(ActualTag, Event);
+				}
 			}
 		});
-		EventHandle.DelegateHandle = Subsystem->AddReceiverInternal(Channel, EventType.Get(), MoveTemp(RawEvent));
+		EventHandle = Subsystem->AddRawReceiver(Channel, EventType.Get(), MoveTemp(RawEvent));
 	}
 	else
 	{

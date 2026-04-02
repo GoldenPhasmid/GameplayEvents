@@ -79,6 +79,22 @@ void UGameplayEventSubsystem::Tick(float DeltaTime)
 	}
 }
 
+FGameplayEventHandle UGameplayEventSubsystem::AddRawReceiver(const FGameplayTag& Channel, const UScriptStruct* EventType, TRawEventDelegate&& Delegate)
+{
+	check(Delegate.IsBound());
+	
+	FGameplayEventHandle EventHandle{this, GenerateNewID(), Channel, EventType};
+	EventHandle.DelegateHandle = AddReceiverInternal(Channel, EventType, TRawGameplayEventDelegate::CreateLambda(
+		[WeakEventType=TWeakObjectPtr{EventType}, Inner=Delegate](FGameplayTag Channel, const void* Event)
+	{
+		if (const UScriptStruct* EventType = WeakEventType.Get())
+		{
+			Inner.Execute(Channel, EventType, Event);
+		}
+	}));
+	return EventHandle;
+}
+
 void UGameplayEventSubsystem::K2_SendEvent(const UObject* WorldContextObject, FGameplayTag Channel, const int32& Event, ESendEventMode SendEventMode)
 {
 	// Exec version should be hit instead
