@@ -18,6 +18,9 @@ public:
 
 	/** @return true if event handle is still valid */
 	bool IsValid() const;
+	
+	/** quick way to remove this handle's owner as a receiver */
+	void Reset();
 
 	friend FORCEINLINE bool operator==(const FGameplayEventHandle& Lhs, const FGameplayEventHandle& Rhs)
 	{

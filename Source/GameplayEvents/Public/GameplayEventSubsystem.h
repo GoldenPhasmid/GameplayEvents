@@ -262,11 +262,25 @@ public:
 		return AddReceiver(Channel, TGameplayEventDelegate<TEvent>::CreateLambda(Callback));
 	}
 
+	/** Bind weak lambda to receive gameplay events on a specified channel, void(const TEvent&) callback format */
+	template <typename TEvent, typename TObject>
+	FGameplayEventHandle AddReceiver(FGameplayTag Channel, TObject* Receiver, TFunction<void(const TEvent&)> Callback)
+	{
+		return AddReceiver(Channel, TGameplayEventDelegate<TEvent>::CreateWeakLambda(Receiver, Callback));
+	}
+
 	/** Bind lambda to receive gameplay events on a specified channel, void(FGameplayTag Tag, const TEvent&) callback format */
 	template <typename TEvent>
 	FGameplayEventHandle AddReceiver(FGameplayTag Channel, TFunction<void(FGameplayTag, const TEvent&)> Callback)
 	{
 		return AddReceiver(Channel, TGameplayEventWithTagDelegate<TEvent>::CreateLambda(Callback));
+	}
+
+	/** Bind weak lambda to receive gameplay events on a specified channel, void(FGameplayTag Tag, const TEvent&) callback format */
+	template <typename TEvent, typename TObject>
+	FGameplayEventHandle AddReceiver(FGameplayTag Channel, TObject* Receiver, TFunction<void(FGameplayTag, const TEvent&)> Callback)
+	{
+		return AddReceiver(Channel, TGameplayEventWithTagDelegate<TEvent>::CreateWeakLambda(Receiver, Callback));
 	}
 
 	/** Bind UObject function to receive gameplay events on a specified channel, void(const TEvent&) callback format */
@@ -436,7 +450,7 @@ protected:
 	 * @param SendMode send mode, either immediate or async
 	 */
 	UFUNCTION(BlueprintCallable, CustomThunk, Category = "Events", meta = (DefaultToSelf = "WorldContextObject", CustomStructureParam = "Event", AllowAbstract = "false", DisplayName = "Send Gameplay Event"))
-	static void K2_SendEvent(const UObject* WorldContextObject, FGameplayTag Channel, const int32& Event, ESendEventMode SendMode);
+	static void K2_SendEvent(const UObject* WorldContextObject, UPARAM(meta = (GameplayTagFilter = "Event")) FGameplayTag Channel, const int32& Event, ESendEventMode SendMode);
 
 	DECLARE_FUNCTION(execK2_SendEvent);
 

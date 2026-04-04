@@ -32,7 +32,7 @@ public:
 	 * @return 
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Events", meta = (WorldContext = "WorldContextObject", DefaultToSelf = "WorldContextObject", BlueprintInternalUseOnly = "true"))
-	static UAsyncAction_WaitGameplayEvent* WaitForGameplayEvent(const UObject* WorldContextObject, FGameplayTag Channel, const UScriptStruct* EventType);
+	static UAsyncAction_WaitGameplayEvent* WaitForGameplayEvent(const UObject* WorldContextObject, UPARAM(meta = (GameplayTagFilter = "Event")) FGameplayTag Channel, const UScriptStruct* EventType);
 
 	//~Begin CancellableAsyncAction interface
 	virtual void Activate() override;
