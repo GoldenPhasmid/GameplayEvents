@@ -83,3 +83,13 @@ struct GAMEPLAYEVENTS_API FSoftActorGameplayEvent: public FGameplayEventBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	TSoftObjectPtr<AActor> Actor = nullptr;
 };
+
+USTRUCT(BlueprintType)
+struct GAMEPLAYEVENTS_API FPlayerStateGameplayEvent: public FGameplayEventBase
+{
+	GENERATED_BODY()
+public:
+	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	TObjectPtr<APlayerState> PlayerState = nullptr;
+};
