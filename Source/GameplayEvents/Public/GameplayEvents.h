@@ -21,6 +21,16 @@ struct GAMEPLAYEVENTS_API FEmptyEvent: public FGameplayEventBase
 	GENERATED_BODY()
 };
 
+USTRUCT(BlueprintType)
+struct GAMEPLAYEVENTS_API FStringEvent: public FGameplayEventBase
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FString Event;
+};
+
+
 /**
  * Generic class gameplay event
  */
