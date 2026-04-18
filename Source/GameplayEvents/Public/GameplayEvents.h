@@ -25,6 +25,11 @@ USTRUCT(BlueprintType)
 struct GAMEPLAYEVENTS_API FStringEvent: public FGameplayEventBase
 {
 	GENERATED_BODY()
+	
+	FStringEvent() = default;
+	FStringEvent(const FString& InEvent)
+		: Event(InEvent)
+	{}
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FString Event;
@@ -60,6 +65,11 @@ struct GAMEPLAYEVENTS_API FObjectGameplayEvent: public FGameplayEventBase
 {
 	GENERATED_BODY()
 
+	FObjectGameplayEvent() = default;
+	FObjectGameplayEvent(UObject* InObject)
+		: Object(InObject)
+	{}
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	TObjectPtr<UObject> Object = nullptr;
 };
@@ -80,6 +90,11 @@ USTRUCT(BlueprintType)
 struct GAMEPLAYEVENTS_API FActorGameplayEvent: public FGameplayEventBase
 {
 	GENERATED_BODY()
+
+	FActorGameplayEvent() = default;
+	FActorGameplayEvent(AActor* InActor)
+		: Actor(InActor)
+	{}
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	TObjectPtr<AActor> Actor = nullptr;
