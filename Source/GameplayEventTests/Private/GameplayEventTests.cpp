@@ -57,7 +57,7 @@ UGameplayEventSubsystem* CreateSubsystem()
 	return Subsystem;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGameplayEventSubsystemTest_Handle, "Game.GameplayEvents.Handle", AutomationFlags | EAutomationTestFlags::MediumPriority)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGameplayEventSubsystemTest_Handle, "GameplayEvents.Handle", AutomationFlags | EAutomationTestFlags::MediumPriority)
 
 bool FGameplayEventSubsystemTest_Handle::RunTest(const FString& Parameters)
 {
